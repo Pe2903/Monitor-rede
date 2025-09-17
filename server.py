@@ -9,9 +9,20 @@ from common import WELCOME, now_hms
 
 desligar_server = threading.Event()
 
+usuarios = []
+clientes_lock = threading.Lock()
+
 def _handle_desligar(sig, frame):
     print("Encerrando o servidor...")
     desligar_server.set()
+
+    with clientes_lock: snapshot = list(usuarios)
+    for c in snapshot:
+        c["out_q"].put(f"[{now_hms()}] Servidor encerrando. Você será desconectado.")
+        c["out_q"].put(None)
+
+
+    
 
 signal.signal(signal.SIGINT, _handle_desligar)
 
@@ -27,7 +38,7 @@ class ClientWriter(threading.Thread):
             while not self.stop_event.is_set():
                 try:
                     msg = self.out_q.get(timeout=0.2)
-                    if msg == None:
+                    if msg is None:
                         break
                 except queue.Empty:
                     continue
@@ -74,6 +85,8 @@ def handle_client(conn, addr, limite):
     writer = ClientWriter(conn, out_q, writer_stop)
     writer.start()
 
+    with clientes_lock: usuarios.append({"conn": conn, "out_q": out_q, "writer_stop": writer_stop})
+
     out_q.put(WELCOME.format(t=now_hms()))
     monitores = {}
 
@@ -81,6 +94,8 @@ def handle_client(conn, addr, limite):
         with conn:
             conn.settimeout(0.5)
             while True:
+                if desligar_server.is_set(): out_q.put("...Servidor encerrando..."); break
+
                 try:
                     data = conn.recv(1024)
                 except socket.timeout:
@@ -135,13 +150,16 @@ def handle_client(conn, addr, limite):
 
         for _, (thr, ev) in list(monitores.items()):
             ev.set()
-            out_q.put(None)
-            writer.join(timeout=1)
+            
+        out_q.put(None)
+        writer.join(timeout=1)
+
         writer_stop.set()
         try:
             conn.shutdown(socket.SHUT_RDWR)
         except Exception:
             pass
+        with clientes_lock: usuarios[:] = [c for c in usuarios if c["conn"] is not conn]
         print(f"{addr} desconectou.")
 
 def main():
@@ -171,7 +189,6 @@ def main():
             while not desligar_server.is_set():
                 try:
                     conn, addr = srv.accept()
-                    print(f"Conexão de {addr}")
 
                     if not limite.acquire(blocking=False):
                         try:
@@ -181,6 +198,8 @@ def main():
                             pass
                         conn.close()
                         continue
+
+                    print(f"{addr} se conectou. ({len(usuarios) + 1}/{qnt})")
 
                     threading.Thread(target=handle_client, args=(conn, addr, limite), daemon=True).start() # cada cliente gera sua própria thread.
                 except socket.timeout:
