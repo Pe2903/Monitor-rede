@@ -123,6 +123,7 @@ def handle_client(conn, addr):
             conn.shutdown(socket.SHUT_RDWR)
         except Exception:
             pass
+        print(f"{addr} desconectou.")
 
 def main():
     if len(sys.argv) < 2:
@@ -134,13 +135,13 @@ def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((host, port))
-        srv.listen(1)  # Fase 1: um cliente
+        srv.listen(50)
         print(f"Servidor escutando em {host}:{port}")
 
-        conn, addr = srv.accept()
-        print(f"Conexão de {addr}")
-        handle_client(conn, addr)
-        print("Sessão encerrada.")
+        while True:
+            conn, addr = srv.accept()
+            print(f"Conexão de {addr}")
+            threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start() # cada cliente gera sua própria thread.
 
 if __name__ == "__main__":
     main()
