@@ -8,6 +8,7 @@ def reader(sock):
             data = sock.recv(4096)
             if not data:
                 print("[conexão encerrada pelo servidor]")
+                sys.exit(1)
                 break
             print(data.decode().rstrip())
     except Exception:

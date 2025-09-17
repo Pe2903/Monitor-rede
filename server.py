@@ -4,7 +4,16 @@ import queue
 import sys
 import psutil
 import time
+import signal
 from common import WELCOME, now_hms
+
+desligar_server = threading.Event()
+
+def _handle_desligar(sig, frame):
+    print("Encerrando o servidor...")
+    desligar_server.set()
+
+signal.signal(signal.SIGINT, _handle_desligar)
 
 class ClientWriter(threading.Thread):
     def __init__(self, conn, out_q, stop_event):
@@ -18,9 +27,14 @@ class ClientWriter(threading.Thread):
             while not self.stop_event.is_set():
                 try:
                     msg = self.out_q.get(timeout=0.2)
+                    if msg == None:
+                        break
                 except queue.Empty:
                     continue
-                self.conn.sendall((msg + "\n").encode())
+                try:
+                    self.conn.sendall((msg + "\n").encode())
+                except OSError:
+                    break
         except Exception:
             self.stop_event.set()
 
@@ -54,7 +68,7 @@ class MonitorThread(threading.Thread):
         except Exception as e:
             self.out_q.put(f"[{now_hms()}] Erro no monitor {self.nome}: {e}")
 
-def handle_client(conn, addr):
+def handle_client(conn, addr, limite):
     out_q = queue.Queue()
     writer_stop = threading.Event()
     writer = ClientWriter(conn, out_q, writer_stop)
@@ -113,11 +127,16 @@ def handle_client(conn, addr):
                     monitores[key] = (thr, stop_ev)
                     thr.start()
                     out_q.put(f"[{now_hms()}] Monitor {nome} iniciado a cada {periodo}s.")
+                    print(f"O usuário {addr} solicitou o monitor {nome} a cada {periodo}s.")
                 else:
                     out_q.put(f"[{now_hms()}] Comando inválido. Exemplos: CPU-5 | memoria-2 | quit CPU | exit")
     finally:
+        limite.release()
+
         for _, (thr, ev) in list(monitores.items()):
             ev.set()
+            out_q.put(None)
+            writer.join(timeout=1)
         writer_stop.set()
         try:
             conn.shutdown(socket.SHUT_RDWR)
@@ -126,22 +145,52 @@ def handle_client(conn, addr):
         print(f"{addr} desconectou.")
 
 def main():
-    if len(sys.argv) < 2:
-        print("Uso: python3 server.py <porta>")
+    if len(sys.argv) < 3:
+        print("Uso: python3 server.py <porta> <máx usuários>")
         sys.exit(1)
     host = "0.0.0.0"
     port = int(sys.argv[1])
+    qnt = int(sys.argv[2])
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((host, port))
-        srv.listen(50)
-        print(f"Servidor escutando em {host}:{port}")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            try:
+                srv.bind((host, port))
+            except OSError:
+                print("Falha ao conectar. Esta porta provavelmente já está em uso.")
+                sys.exit(1)
 
-        while True:
-            conn, addr = srv.accept()
-            print(f"Conexão de {addr}")
-            threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start() # cada cliente gera sua própria thread.
+            srv.listen(qnt)
+            srv.settimeout(0.5)
+            print(f"Servidor escutando em {host}:{port}. Limitado a {qnt} usuário(s).")
+
+            limite = threading.Semaphore(qnt)
+
+            while not desligar_server.is_set():
+                try:
+                    conn, addr = srv.accept()
+                    print(f"Conexão de {addr}")
+
+                    if not limite.acquire(blocking=False):
+                        try:
+                            conn.sendall(b"Servidor ocupado. Tente novamente mais tarde.\n")
+                            print(f"{addr} não conseguiu se conectar - Servidor atingiu o limite de usuários.")
+                        except OSError:
+                            pass
+                        conn.close()
+                        continue
+
+                    threading.Thread(target=handle_client, args=(conn, addr, limite), daemon=True).start() # cada cliente gera sua própria thread.
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+    finally:
+        print("Servidor finalizado.")
+            
+            
 
 if __name__ == "__main__":
     main()
