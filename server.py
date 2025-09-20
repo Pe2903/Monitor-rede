@@ -44,7 +44,7 @@ class ClientWriter(threading.Thread):
                     continue
                 try:
                     self.conn.sendall((msg + "\n").encode())
-                except OSError:
+                except (OSError, ConnectionResetError, BrokenPipeError):
                     break
         except Exception:
             self.stop_event.set()
@@ -100,6 +100,9 @@ def handle_client(conn, addr, limite):
                     data = conn.recv(1024)
                 except socket.timeout:
                     continue
+                except (ConnectionResetError, BrokenPipeError):
+                    print(f"[{now_hms()}] Cliente {addr} desconectou inesperadamente.")
+                    break
                 if not data:
                     break
                 cmd = data.decode().strip()
