@@ -126,12 +126,15 @@ def handle_client(conn, addr, limite):
                         out_q.put(f"[{now_hms()}] Use: quit CPU | quit memoria")
                     continue
 
-                if "-" in cmd:
+                if "-" in cmd and cmd.count("-") == 1:
                     nome, periodo = cmd.split("-", 1)
                     nome = nome.strip()
                     periodo = periodo.strip()
-                    if not periodo.isdigit():
-                        out_q.put(f"[{now_hms()}] Período inválido: {periodo}")
+                    if not nome or not periodo:
+                        out_q.put(f"[{now_hms()}] Formato inválido. Use: CPU-5 ou memoria-3")
+                        continue
+                    if not periodo.isdigit() or int(periodo) <= 0:  
+                        out_q.put(f"[{now_hms()}] Período inválido: {periodo}. Use um número maior que 0.")
                         continue
 
                     key = nome.upper() if nome.upper() == "CPU" else nome.lower()
