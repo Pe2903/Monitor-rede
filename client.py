@@ -1,9 +1,10 @@
-import socket, sys, threading, os, time
+import socket, sys, threading, os, time, signal
 
 PROMPT = "> "
 buf = []                      # caracteres digitados
 stop = threading.Event()
-io_lock = threading.Lock()    # sincroniza prints
+io_lock = threading.Lock()
+current_sock = None           # para fechar com Ctrl+C
 
 def _texto(): return "".join(buf)
 
@@ -18,33 +19,46 @@ def _print_srv(msg):
         sys.stdout.flush()
     _prompt()
 
+def _sigint_handler(signum, frame):
+    # Apenas sinaliza para fechar; sem prints, sem traceback
+    stop.set()
+signal.signal(signal.SIGINT, _sigint_handler)
+
 def reader(sock):
     try:
         pend = ""
         while not stop.is_set():
             data = sock.recv(4096)
             if not data:
-                _print_srv("[Conexão encerrada pelo servidor]")
+                if not stop.is_set():
+                    _print_srv("[Conexão encerrada pelo servidor]")
                 stop.set(); break
             pend += data.decode(errors="replace")
             while "\n" in pend:
                 linha, pend = pend.split("\n", 1)
+                if stop.is_set(): break
                 _print_srv(linha.rstrip())
     except (ConnectionResetError, BrokenPipeError):
-        _print_srv("[Servidor desconectou]")
+        if not stop.is_set():
+            _print_srv("[Servidor desconectou]")
         stop.set()
     except Exception as e:
-        _print_srv(f"[Erro de conexão: {e}]")
+        if not stop.is_set():
+            _print_srv(f"[Erro de conexão: {e}]")
         stop.set()
 
 def _enviar_linha(sock):
     linha = _texto().strip()
     buf.clear(); _prompt()
     if not linha: return
-    try: sock.sendall((linha + "\n").encode())
+    try:
+        sock.sendall((linha + "\n").encode())
     except Exception:
-        _print_srv("[Erro: servidor desconectou]"); stop.set(); return
-    if linha.lower() == "exit": stop.set()
+        if not stop.is_set():
+            _print_srv("[Erro: servidor desconectou]")
+        stop.set(); return
+    if linha.lower() == "exit":
+        stop.set()
 
 def _loop_windows(sock):
     import msvcrt
@@ -53,9 +67,9 @@ def _loop_windows(sock):
         if msvcrt.kbhit():
             ch = msvcrt.getwch()
             if ch in ("\r", "\n"): _enviar_linha(sock); continue
-            if ch in ("\b", "\x7f"): 
+            if ch in ("\b", "\x7f"):
                 if buf: buf.pop(); _prompt(); continue
-            if ch == "\x03":            # Ctrl+C
+            if ch == "\x03":  # Ctrl+C vira interrupção manual
                 try: sock.sendall(b"exit\n")
                 except: pass
                 stop.set(); break
@@ -71,14 +85,14 @@ def _loop_posix(sock):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
-        tty.setcbreak(fd)
+        tty.setcbreak(fd)  # modo char-by-char; Ctrl+C vira '\x03'
         _prompt()
         while not stop.is_set():
             r,_,_ = select.select([sys.stdin], [], [], 0.1)
             if not r: continue
             ch = sys.stdin.read(1)
             if ch in ("\r", "\n"): _enviar_linha(sock); continue
-            if ch in ("\x7f", "\b"): 
+            if ch in ("\x7f", "\b"):
                 if buf: buf.pop(); _prompt(); continue
             if ch in ("\x03", "\x04"):  # Ctrl+C / Ctrl+D
                 try: sock.sendall(b"exit\n")
@@ -95,18 +109,34 @@ def writer(sock):
     else: _loop_posix(sock)
 
 def main():
+    global current_sock
     if len(sys.argv) < 3:
         print("Uso: python3 client.py <host> <porta>"); sys.exit(1)
     host, port = sys.argv[1], int(sys.argv[2])
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            current_sock = s
             s.connect((host, port))
-            threading.Thread(target=reader, args=(s,), daemon=True).start()
-            writer(s)
+            t = threading.Thread(target=reader, args=(s,), daemon=True)
+            t.start()
+            writer(s)  # bloqueia até sair (exit / Ctrl+C)
+            stop.set()
+            t.join(timeout=0.5)
     except ConnectionRefusedError:
         _print_srv(f"[Erro: não foi possível conectar a {host}:{port}]"); sys.exit(1)
+    except KeyboardInterrupt:
+        # Ctrl+C fora dos loops (fallback). Fecha limpo e sai 0.
+        try: 
+            if current_sock: current_sock.sendall(b"exit\n")
+        except Exception:
+            pass
+        stop.set()
+        sys.exit(0)
     except Exception as e:
-        _print_srv(f"[Erro de conexão: {e}]"); sys.exit(1)
+        if not stop.is_set():
+            _print_srv(f"[Erro de conexão: {e}]")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
