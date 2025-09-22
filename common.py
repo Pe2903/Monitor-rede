@@ -5,6 +5,7 @@ Comandos:
   CPU-<s>        -> monitorar uso de CPU a cada <s> segundos
   memoria-<s>    -> monitorar uso de Memória a cada <s> segundos
   disco-<s>      -> monitorar o uso de disco a cada <s> segundos
+  rede-<s>       -> monitorar o uso de rede a cada <s> segundos
   usuarios       -> exibe os usuários conectados no servidor
   quit <nome>    -> parar um monitor (CPU ou memoria)
   exit           -> encerrar sessão

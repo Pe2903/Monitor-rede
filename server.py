@@ -80,7 +80,17 @@ class MonitorThread(threading.Thread):
                     self.out_q.put(
                         f"[{now_hms()}] Disco: Leitura {read_bytes/1024:.1f} KB/s | Escrita {write_bytes/1024:.1f} KB/s"
                     )
-                
+                elif self.nome.lower() == "rede":
+                    prev = psutil.net_io_counters()
+                    while not self.stop_event.is_set():
+                        time.sleep(self.periodo)
+                        cur = psutil.net_io_counters()
+                        sent = cur.bytes_sent - prev.bytes_sent
+                        recv = cur.bytes_recv - prev.bytes_recv
+                        prev = cur
+                        self.out_q.put(
+                            f"[{now_hms()}] Rede: ↑ {sent/1024:.1f} KB/s | ↓ {recv/1024:.1f} KB/s"
+                        )
                 else:
                     self.out_q.put(f"[{now_hms()}] Monitor desconhecido: {self.nome}")
                     break
