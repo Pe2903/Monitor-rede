@@ -6,6 +6,7 @@ import psutil
 import time
 import signal
 from common import WELCOME, now_hms
+from verificar_porta import garantir_porta_livre
 
 desligar_server = threading.Event()
 
@@ -203,6 +204,8 @@ def main():
     host = "0.0.0.0"
     port = int(sys.argv[1])
     qnt = int(sys.argv[2])
+
+    garantir_porta_livre(host, port)
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
