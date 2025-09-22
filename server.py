@@ -5,7 +5,7 @@ import sys
 import psutil
 import time
 import signal
-from common import WELCOME, now_hms
+from common import WELCOME, AJUDA, now_hms
 from verificar_porta import garantir_porta_livre
 
 desligar_server = threading.Event()
@@ -152,7 +152,11 @@ def handle_client(conn, addr, limite):
                         else:
                             out_q.put(f"[{now_hms()}] Monitor {nome} não está ativo.")
                     else:
-                        out_q.put(f"[{now_hms()}] Use: quit CPU | quit memoria")
+                        out_q.put(f"[{now_hms()}] Selecione qual monitor você deseja encerrar. {parts}")
+                    continue
+
+                if cmd.lower().startswith("ajuda"):
+                    out_q.put(AJUDA.format(t=now_hms()))
                     continue
 
                 if "-" in cmd and cmd.count("-") == 1:
@@ -179,7 +183,7 @@ def handle_client(conn, addr, limite):
                     out_q.put(f"[{now_hms()}] Monitor {nome} iniciado a cada {periodo}s.")
                     print(f"O usuário {addr} solicitou o monitor {nome} a cada {periodo}s.")
                 else:
-                    out_q.put(f"[{now_hms()}] Comando inválido. Exemplos: CPU-5 | memoria-2 | disco-3 | usuarios | quit CPU | exit")
+                    out_q.put(f"[{now_hms()}] Comando inválido. Digite \"Ajuda\" para ver os comandos disponíveis.")
     finally:
         limite.release()
 
