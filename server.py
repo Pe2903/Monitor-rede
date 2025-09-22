@@ -111,6 +111,12 @@ def handle_client(conn, addr, limite):
                     out_q.put(f"[{now_hms()}] Encerrando sessão…")
                     break
 
+                if cmd.lower() == "usuarios":
+                    with clientes_lock:
+                        infos = [f"{c['conn'].getpeername()[0]}:{c['conn'].getpeername()[1]}" for c in usuarios]
+                    out_q.put(f"{len(infos)} usuário(s) conectado(s): " + ", ".join(infos) if infos else "Nenhum usuário conectado.")
+                    continue
+
                 if cmd.lower().startswith("quit"):
                     parts = cmd.split(maxsplit=1)
                     if len(parts) == 2:
