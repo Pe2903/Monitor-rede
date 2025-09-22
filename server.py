@@ -69,6 +69,18 @@ class MonitorThread(threading.Thread):
                         f"[{now_hms()}] Memória: {mem.percent:.1f}% "
                         f"({mem.used//(1024**2)}MB/{mem.total//(1024**2)}MB)"
                     )
+                elif self.nome.lower() == "disco":
+                    io1 = psutil.disk_io_counters()
+                    time.sleep(1) 
+                    io2 = psutil.disk_io_counters()
+
+                    read_bytes = io2.read_bytes - io1.read_bytes
+                    write_bytes = io2.write_bytes - io1.write_bytes
+
+                    self.out_q.put(
+                        f"[{now_hms()}] Disco: Leitura {read_bytes/1024:.1f} KB/s | Escrita {write_bytes/1024:.1f} KB/s"
+                    )
+                
                 else:
                     self.out_q.put(f"[{now_hms()}] Monitor desconhecido: {self.nome}")
                     break
@@ -156,7 +168,7 @@ def handle_client(conn, addr, limite):
                     out_q.put(f"[{now_hms()}] Monitor {nome} iniciado a cada {periodo}s.")
                     print(f"O usuário {addr} solicitou o monitor {nome} a cada {periodo}s.")
                 else:
-                    out_q.put(f"[{now_hms()}] Comando inválido. Exemplos: CPU-5 | memoria-2 | quit CPU | exit")
+                    out_q.put(f"[{now_hms()}] Comando inválido. Exemplos: CPU-5 | memoria-2 | disco-3 | usuarios | quit CPU | exit")
     finally:
         limite.release()
 
